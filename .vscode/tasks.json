@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend",
+      "type": "shell",
+      "command": "cd backend",
+      "presentation": {
+        "name": "Backend",
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Frontend",
+      "type": "shell",
+      "command": "cd frontend",
+      "presentation": {
+        "name": "Frontend",
+        "panel": "dedicated",
+        "group": "dev",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Start Dev",
+      "dependsOn": ["Backend", "Frontend"],
+      "dependsOrder": "parallel",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

@@ -62,7 +62,7 @@ def init_db():
             triggered_by TEXT DEFAULT 'system',
             created_at TEXT NOT NULL
         )
-    """
+        """
     )
     conn.commit()
     conn.close()
@@ -73,7 +73,19 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/jobs", methods=["GET"])
+def get_jobs():
+    fake_jobs = [
+        {"id": 1, "job_id": "job-001", "job_name": "Daily Sales Report", "client": "Acme Corp", "status": "completed", "progress": 100, "duration": 142, "created_at": "2026-03-07T08:00:00"},
+        {"id": 2, "job_id": "job-002", "job_name": "ETL Pipeline Run", "client": "TechCo Inc", "status": "running", "progress": 63, "duration": None, "created_at": "2026-03-07T08:15:00"},
+        {"id": 3, "job_id": "job-003", "job_name": "Invoice Processing", "client": "RetailMart", "status": "failed", "progress": 45, "duration": None, "created_at": "2026-03-07T08:20:00"},
+        {"id": 4, "job_id": "job-004", "job_name": "Data Backup", "client": "Warehouse LLC", "status": "queued", "progress": 0, "duration": None, "created_at": "2026-03-07T08:25:00"},
+        {"id": 5, "job_id": "job-005", "job_name": "Payment Reconciliation", "client": "FinServ Group", "status": "running", "progress": 81, "duration": None, "created_at": "2026-03-07T08:30:00"},
+    ]
+    return jsonify(fake_jobs)
+
+
 if __name__ == "__main__":
     init_db()
     print("[Backend] Database initialized")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5001, debug=False)
