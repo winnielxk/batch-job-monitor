@@ -31,12 +31,18 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
+useEffect(() => {
+  const fetchJobs = () => {
     fetch("http://localhost:5001/jobs")
       .then(r => r.json())
       .then(data => { setJobs(data); setLoading(false) })
       .catch(() => { setError("Could not reach backend"); setLoading(false) })
-  }, [])
+  }
+
+  fetchJobs()
+  const interval = setInterval(fetchJobs, 4000)
+  return () => clearInterval(interval)
+}, [])
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-8">

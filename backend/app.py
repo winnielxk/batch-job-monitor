@@ -2,6 +2,11 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 import sqlite3
 import os
+import threading
+import time
+import uuid
+from datetime import datetime
+import random
 
 app = Flask(__name__)
 CORS(app)
@@ -31,6 +36,129 @@ ERROR_TYPES = {
     "dependency_error": "Required prerequisite job failed",
     "io_error": "Database connection timeout",
 }
+
+
+def simulate_jobs():
+    while True:
+        try:
+            conn = get_db()
+
+            # Advance running jobs
+            running = conn.execute(
+                "SELECT * FROM jobs WHERE status = 'running'"
+            ).fetchall()
+
+            for job in running:
+                job = dict(job)
+                progress = job["progress"] + random.randint(3, 12)
+
+                if progress >= 100:
+                    if random.random() < 0.12:
+                        err_key = random.choice(list(ERROR_TYPES.keys()))
+                        if job["retry_count"] < job["max_retries"]:
+                            conn.execute(
+                                """
+                                UPDATE jobs SET status='queued', progress=0,
+                                start_time=NULL, error_message=NULL, error_type=NULL,
+                                retry_count=retry_count+1
+                                WHERE job_id=?
+                            """,
+                                (job["job_id"],),
+                            )
+                        else:
+                            conn.execute(
+                                """
+                                UPDATE jobs SET status='failed', progress=?,
+                                end_time=?, error_message=?, error_type=?
+                                WHERE job_id=?
+                            """,
+                                (
+                                    job["progress"],
+                                    datetime.utcnow().isoformat(),
+                                    ERROR_TYPES[err_key],
+                                    err_key,
+                                    job["job_id"],
+                                ),
+                            )
+                    else:
+                        start = datetime.fromisoformat(job["start_time"])
+                        duration = int((datetime.utcnow() - start).total_seconds())
+                        conn.execute(
+                            """
+                            UPDATE jobs SET status='completed', progress=100,
+                            end_time=?, duration=?
+                            WHERE job_id=?
+                        """,
+                            (datetime.utcnow().isoformat(), duration, job["job_id"]),
+                        )
+                else:
+                    conn.execute(
+                        "UPDATE jobs SET progress=? WHERE job_id=?",
+                        (progress, job["job_id"]),
+                    )
+
+            # Pick up queued jobs (max 5 running at once)
+            running_count = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='running'"
+            ).fetchone()[0]
+
+            if running_count < 5:
+                queued = conn.execute(
+                    """
+                    SELECT * FROM jobs WHERE status='queued'
+                    ORDER BY created_at ASC LIMIT ?
+                """,
+                    (5 - running_count,),
+                ).fetchall()
+
+                for job in queued:
+                    conn.execute(
+                        """
+                        UPDATE jobs SET status='running', start_time=?, progress=?
+                        WHERE job_id=?
+                    """,
+                        (
+                            datetime.utcnow().isoformat(),
+                            random.randint(1, 5),
+                            dict(job)["job_id"],
+                        ),
+                    )
+
+            # Spawn new jobs if queue is low
+            active_count = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')"
+            ).fetchone()[0]
+
+            if active_count < 4:
+                template = random.choice(JOB_TEMPLATES)
+                client = random.choice(CLIENTS)
+                conn.execute(
+                    """
+                    INSERT INTO jobs (job_id, job_name, client, status, progress,
+                    retry_count, max_retries, logs, triggered_by, created_at)
+                    VALUES (?,?,?,'queued',0,0,2,'','system',?)
+                """,
+                    (
+                        str(uuid.uuid4())[:8],
+                        template["name"],
+                        client,
+                        datetime.utcnow().isoformat(),
+                    ),
+                )
+
+            conn.commit()
+            conn.close()
+
+        except Exception as e:
+            print(f"[Simulator] Error: {e}")
+
+        time.sleep(4)
+
+
+def start_simulator():
+    thread = threading.Thread(target=simulate_jobs, daemon=True)
+    thread.start()
+    print("[Simulator] Started")
 
 
 def get_db():
@@ -76,10 +204,12 @@ def health():
 @app.route("/jobs", methods=["GET"])
 def get_jobs():
     conn = get_db()
-    jobs = conn.execute("""
+    jobs = conn.execute(
+        """
         SELECT * FROM jobs
         ORDER BY created_at DESC
-    """).fetchall()
+    """
+    ).fetchall()
     conn.close()
     return jsonify([dict(job) for job in jobs])
 
@@ -87,4 +217,5 @@ def get_jobs():
 if __name__ == "__main__":
     init_db()
     print("[Backend] Database initialized")
+    start_simulator()
     app.run(host="0.0.0.0", port=5001, debug=False)
