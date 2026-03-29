@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import sqlite3
 import os
@@ -7,6 +7,7 @@ import time
 import uuid
 from datetime import datetime
 import random
+import math
 
 app = Flask(__name__)
 CORS(app)
@@ -43,7 +44,6 @@ def simulate_jobs():
         try:
             conn = get_db()
 
-            # Advance running jobs
             running = conn.execute(
                 "SELECT * FROM jobs WHERE status = 'running'"
             ).fetchall()
@@ -97,7 +97,6 @@ def simulate_jobs():
                         (progress, job["job_id"]),
                     )
 
-            # Pick up queued jobs (max 5 running at once)
             running_count = conn.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status='running'"
             ).fetchone()[0]
@@ -124,7 +123,6 @@ def simulate_jobs():
                         ),
                     )
 
-            # Spawn new jobs if queue is low
             active_count = conn.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')"
             ).fetchone()[0]
@@ -190,7 +188,7 @@ def init_db():
             triggered_by TEXT DEFAULT 'system',
             created_at TEXT NOT NULL
         )
-        """
+    """
     )
     conn.commit()
     conn.close()
@@ -203,15 +201,45 @@ def health():
 
 @app.route("/jobs", methods=["GET"])
 def get_jobs():
+    page = int(request.args.get("page", 1))
+    limit = int(request.args.get("limit", 20))
+    offset = (page - 1) * limit
+
     conn = get_db()
+
+    total_count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    running_count = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE status='running'"
+    ).fetchone()[0]
+    failed_count = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE status='failed'"
+    ).fetchone()[0]
+    completed_count = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE status='completed'"
+    ).fetchone()[0]
+
     jobs = conn.execute(
         """
         SELECT * FROM jobs
         ORDER BY created_at DESC
-    """
+        LIMIT ? OFFSET ?
+    """,
+        (limit, offset),
     ).fetchall()
+
     conn.close()
-    return jsonify([dict(job) for job in jobs])
+
+    return jsonify(
+        {
+            "jobs": [dict(job) for job in jobs],
+            "total": total_count,
+            "running": running_count,
+            "failed": failed_count,
+            "completed": completed_count,
+            "page": page,
+            "pages": math.ceil(total_count / limit),
+        }
+    )
 
 
 if __name__ == "__main__":

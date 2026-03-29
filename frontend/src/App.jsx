@@ -28,21 +28,46 @@ function ProgressBar({ value }) {
 
 export default function App() {
   const [jobs, setJobs] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [globalRunning, setGlobalRunning] = useState(0)
+  const [globalFailed, setGlobalFailed] = useState(0)
+  const [globalCompleted, setGlobalCompleted] = useState(0)
 
-useEffect(() => {
-  const fetchJobs = () => {
-    fetch("http://localhost:5001/jobs")
-      .then(r => r.json())
-      .then(data => { setJobs(data); setLoading(false) })
-      .catch(() => { setError("Could not reach backend"); setLoading(false) })
-  }
+  useEffect(() => {
+    const fetchJobs = () => {
+      fetch(`http://localhost:5001/jobs?page=${page}&limit=20`)
+        .then(r => r.json())
+        .then(data => {
+          setJobs(data.jobs)
+          setTotalPages(data.pages)
+          setTotalCount(data.total)
+          setGlobalRunning(data.running)
+          setGlobalFailed(data.failed)
+          setGlobalCompleted(data.completed)
+          if (loading) setLoading(false)
+        })
+        .catch(() => { setError("Could not reach backend"); setLoading(false) })
+    }
 
-  fetchJobs()
-  const interval = setInterval(fetchJobs, 4000)
-  return () => clearInterval(interval)
-}, [])
+    fetchJobs()
+    const interval = setInterval(fetchJobs, 4000)
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") fetchJobs()
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [page])
+
+  const successRate = (globalCompleted + globalFailed) === 0 ? 0 : ((globalCompleted / (globalCompleted + globalFailed)) * 100).toFixed(2)
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-8">
@@ -52,49 +77,84 @@ useEffect(() => {
           <p className="text-gray-400 text-sm mt-1">Real-time enterprise job tracking</p>
         </div>
 
-        {loading && <p className="text-gray-400">Loading jobs...</p>}
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">Total Jobs</p>
+            <p className="text-2xl font-bold text-white">{totalCount}</p>
+          </div>
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">Running</p>
+            <p className="text-2xl font-bold text-blue-400">{globalRunning}</p>
+          </div>
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">Failed</p>
+            <p className="text-2xl font-bold text-red-400">{globalFailed}</p>
+          </div>
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">Success Rate</p>
+            <p className="text-2xl font-bold text-green-400">{successRate}%</p>
+          </div>
+        </div>
+
         {error && <p className="text-red-400">{error}</p>}
 
-        {!loading && !error && (
-          <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wider">
-                  <th className="text-left px-4 py-3">Job</th>
-                  <th className="text-left px-4 py-3">Client</th>
-                  <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-left px-4 py-3 w-40">Progress</th>
-                  <th className="text-left px-4 py-3">Duration</th>
-                  <th className="text-left px-4 py-3">Created</th>
+        <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wider">
+                <th className="text-left px-4 py-3">Job</th>
+                <th className="text-left px-4 py-3">Client</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-left px-4 py-3 w-40">Progress</th>
+                <th className="text-left px-4 py-3">Duration</th>
+                <th className="text-left px-4 py-3">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map(job => (
+                <tr key={job.id} className="border-b border-gray-800/50 hover:bg-gray-800/40 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-white">{job.job_name}</div>
+                    <div className="text-gray-500 text-xs">{job.job_id}</div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-300">{job.client}</td>
+                  <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <ProgressBar value={job.progress} />
+                      <span className="text-gray-400 text-xs w-8">{job.progress}%</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-300">
+                    {job.duration ? `${job.duration}s` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs">
+                    {new Date(job.created_at).toLocaleTimeString()}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {jobs.map(job => (
-                  <tr key={job.id} className="border-b border-gray-800/50 hover:bg-gray-800/40 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-white">{job.job_name}</div>
-                      <div className="text-gray-500 text-xs">{job.job_id}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-300">{job.client}</td>
-                    <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <ProgressBar value={job.progress} />
-                        <span className="text-gray-400 text-xs w-8">{job.progress}%</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-300">
-                      {job.duration ? `${job.duration}s` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {new Date(job.created_at).toLocaleTimeString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
+            <p className="text-gray-400 text-xs">Page {page} of {totalPages}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1 text-xs bg-gray-800 text-gray-300 rounded disabled:opacity-40 hover:bg-gray-700"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1 text-xs bg-gray-800 text-gray-300 rounded disabled:opacity-40 hover:bg-gray-700"
+              >
+                Next
+              </button>
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
