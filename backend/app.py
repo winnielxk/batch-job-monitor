@@ -242,6 +242,18 @@ def get_jobs():
     )
 
 
+@app.route("/jobs/<job_id>", methods=["GET"])
+def get_job(job_id):
+    conn = get_db()
+    job = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    conn.close()
+
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+
+    return jsonify(dict(job))
+
+
 if __name__ == "__main__":
     init_db()
     print("[Backend] Database initialized")
