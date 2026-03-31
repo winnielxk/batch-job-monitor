@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime
 import random
 import math
+import subprocess
+import sys
 
 app = Flask(__name__)
 CORS(app)
@@ -257,5 +259,14 @@ def get_job(job_id):
 if __name__ == "__main__":
     init_db()
     print("[Backend] Database initialized")
+
+    # Auto-seed if empty (handles Render's ephemeral filesystem)
+    count = sqlite3.connect(DB_PATH).execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    if count == 0:
+        print("[Backend] Empty database — seeding...")
+        subprocess.run([sys.executable, "seed.py"])
+        print("[Backend] Seeding complete")
+
     start_simulator()
-    app.run(host="0.0.0.0", port=5001, debug=False)
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host="0.0.0.0", port=port, debug=False)
