@@ -164,7 +164,7 @@ export default function App() {
   }
 
   const fetchJobDetail = (jobId) => {
-    fetch(`http://localhost:5001/jobs/${jobId}`)
+    fetch(`${import.meta.env.VITE_API_URL}/jobs/${jobId}`)
       .then(r => r.json())
       .then(data => setSelectedJob(data))
       .catch(() => {})
@@ -172,7 +172,7 @@ export default function App() {
 
   useEffect(() => {
     const fetchJobs = () => {
-      fetch(`http://localhost:5001/jobs?page=${page}&limit=20`)
+      fetch(`${import.meta.env.VITE_API_URL}/jobs?page=${page}&limit=20`)
         .then(r => r.json())
         .then(data => {
           data.jobs.forEach(job => {
