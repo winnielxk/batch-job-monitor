@@ -4,7 +4,7 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: python seed_if_empty.py && gunicorn app:app --bind 0.0.0.0:$PORT
+    startCommand: python seed_if_empty.py && gunicorn --worker-class eventlet -w 1 app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: DB_PATH
         value: /tmp/jobs.db

@@ -1,4 +1,8 @@
 import { useEffect, useState, useRef } from "react"
+import { io } from "socket.io-client"
+
+const API = import.meta.env.VITE_API_URL
+const socket = io(API, { transports: ["websocket", "polling"] })
 
 const STATUS_STYLES = {
   completed: "bg-green-500/20 text-green-400 border border-green-500/30",
@@ -49,7 +53,6 @@ function Toast({ toasts, onDismiss }) {
 
 function JobModal({ job, onClose }) {
   if (!job) return null
-
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4"
@@ -66,17 +69,10 @@ function JobModal({ job, onClose }) {
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={job.status} />
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-white transition-colors text-lg"
-            >
-              ✕
-            </button>
+            <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg">✕</button>
           </div>
         </div>
-
         <div className="p-6 space-y-6">
-
           <div>
             <div className="flex justify-between text-xs text-gray-400 mb-2">
               <span>Progress</span>
@@ -84,7 +80,6 @@ function JobModal({ job, onClose }) {
             </div>
             <ProgressBar value={job.progress} />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             {[
               { label: "Client", value: job.client },
@@ -100,24 +95,19 @@ function JobModal({ job, onClose }) {
               </div>
             ))}
           </div>
-
           {job.depends_on_job_id && (
             <div className="bg-gray-800/50 rounded-lg p-3">
               <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Depends On</p>
               <p className="text-white text-sm font-mono">{job.depends_on_job_id}</p>
             </div>
           )}
-
           {job.error_message && (
             <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
               <p className="text-red-400 text-xs uppercase tracking-wider mb-2 font-medium">Error</p>
               <p className="text-red-300 text-sm">{job.error_message}</p>
-              {job.error_type && (
-                <p className="text-red-500 text-xs mt-1 font-mono">{job.error_type}</p>
-              )}
+              {job.error_type && <p className="text-red-500 text-xs mt-1 font-mono">{job.error_type}</p>}
             </div>
           )}
-
           {job.logs && (
             <div>
               <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">Logs</p>
@@ -126,7 +116,6 @@ function JobModal({ job, onClose }) {
               </pre>
             </div>
           )}
-
         </div>
       </div>
     </div>
@@ -143,77 +132,106 @@ export default function App() {
   const [globalRunning, setGlobalRunning] = useState(0)
   const [globalFailed, setGlobalFailed] = useState(0)
   const [globalCompleted, setGlobalCompleted] = useState(0)
-
   const [selectedJobId, setSelectedJobId] = useState(null)
   const [selectedJob, setSelectedJob] = useState(null)
-
   const [toasts, setToasts] = useState([])
+  const [connected, setConnected] = useState(false)
 
-  const previousJobs = useRef({})
+  const previousStatuses = useRef({})
 
   const addToast = (message, type) => {
     const id = Date.now()
     setToasts(prev => [...prev, { id, message, type }])
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, 4000)
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
   }
 
-  const dismissToast = (id) => {
-    setToasts(prev => prev.filter(t => t.id !== id))
+  const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id))
+
+  const fetchPage = (p) => {
+    fetch(`${API}/jobs?page=${p}&limit=20`)
+      .then(r => r.json())
+      .then(data => {
+        setJobs(data.jobs)
+        setTotalPages(data.pages)
+        setTotalCount(data.total)
+        setGlobalRunning(data.running)
+        setGlobalFailed(data.failed)
+        setGlobalCompleted(data.completed)
+
+        const snapshot = {}
+        data.jobs.forEach(j => { snapshot[j.job_id] = j.status })
+        previousStatuses.current = snapshot
+      })
+      .catch(() => setError("Could not reach backend"))
   }
 
   const fetchJobDetail = (jobId) => {
-    fetch(`${import.meta.env.VITE_API_URL}/jobs/${jobId}`)
+    fetch(`${API}/jobs/${jobId}`)
       .then(r => r.json())
       .then(data => setSelectedJob(data))
       .catch(() => {})
   }
 
+  // Initial load + page changes
   useEffect(() => {
-    const fetchJobs = () => {
-      fetch(`${import.meta.env.VITE_API_URL}/jobs?page=${page}&limit=20`)
-        .then(r => r.json())
-        .then(data => {
-          data.jobs.forEach(job => {
-            const prev = previousJobs.current[job.job_id]
-            if (prev === "running" && job.status === "failed") {
-              addToast(`${job.job_name} failed`, "failed")
-            } else if (prev === "running" && job.status === "completed") {
-              addToast(`${job.job_name} completed`, "completed")
-            }
-          })
+    fetchPage(page)
+  }, [page])
 
-          const nextSnapshot = {}
-          data.jobs.forEach(job => {
-            nextSnapshot[job.job_id] = job.status
-          })
-          previousJobs.current = nextSnapshot
+  // Socket.IO events
+  useEffect(() => {
+    socket.on("connect", () => setConnected(true))
+    socket.on("disconnect", () => setConnected(false))
 
-          setJobs(data.jobs)
-          setTotalPages(data.pages)
-          setTotalCount(data.total)
-          setGlobalRunning(data.running)
-          setGlobalFailed(data.failed)
-          setGlobalCompleted(data.completed)
-          if (loading) setLoading(false)
+    socket.on("job_update", (update) => {
+      const { job_id, status, progress } = update
+
+      // Toast on transition
+      const prev = previousStatuses.current[job_id]
+      if (prev === "running" && status === "failed") {
+        setJobs(current => {
+          const job = current.find(j => j.job_id === job_id)
+          if (job) addToast(`${job.job_name} failed`, "failed")
+          return current
         })
-        .catch(() => { setError("Could not reach backend"); setLoading(false) })
-
-      if (selectedJobId) {
-        fetchJobDetail(selectedJobId)
+      } else if (prev === "running" && status === "completed") {
+        setJobs(current => {
+          const job = current.find(j => j.job_id === job_id)
+          if (job) addToast(`${job.job_name} completed`, "completed")
+          return current
+        })
       }
-    }
+      previousStatuses.current[job_id] = status
 
-    fetchJobs()
-    const interval = setInterval(fetchJobs, 4000)
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") fetchJobs()
+      // Update job in table if it's on current page
+      setJobs(current =>
+        current.map(j => j.job_id === job_id ? { ...j, status, progress } : j)
+      )
+
+      // Update modal if open
+      if (selectedJobId === job_id) {
+        setSelectedJob(prev => prev ? { ...prev, status, progress } : prev)
+      }
+    })
+
+    socket.on("stats_update", (stats) => {
+      setTotalCount(stats.total)
+      setGlobalRunning(stats.running)
+      setGlobalFailed(stats.failed)
+      setGlobalCompleted(stats.completed)
+    })
+
+    // Refetch page when tab becomes visible
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") fetchPage(page)
     }
-    document.addEventListener("visibilitychange", handleVisibilityChange)
+    document.addEventListener("visibilitychange", handleVisibility)
+
     return () => {
-      clearInterval(interval)
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      socket.off("connect")
+      socket.off("disconnect")
+      socket.off("job_update")
+      socket.off("stats_update")
+      document.removeEventListener("visibilitychange", handleVisibility)
     }
   }, [page, selectedJobId])
 
@@ -234,9 +252,15 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white">Batch Job Monitor</h1>
-          <p className="text-gray-400 text-sm mt-1">Real-time enterprise job tracking</p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Batch Job Monitor</h1>
+            <p className="text-gray-400 text-sm mt-1">Real-time enterprise job tracking</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
+            <span className="text-gray-400">{connected ? "Live" : "Reconnecting..."}</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-4 mb-6">
@@ -258,7 +282,7 @@ export default function App() {
           </div>
         </div>
 
-        {error && <p className="text-red-400">{error}</p>}
+        {error && <p className="text-red-400 mb-4">{error}</p>}
 
         <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
           <table className="w-full text-sm">
@@ -292,9 +316,7 @@ export default function App() {
                       <span className="text-gray-400 text-xs w-8">{job.progress}%</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-gray-300">
-                    {job.duration ? `${job.duration}s` : "—"}
-                  </td>
+                  <td className="px-4 py-3 text-gray-300">{job.duration ? `${job.duration}s` : "—"}</td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
                     {new Date(job.created_at + "Z").toLocaleTimeString()}
                   </td>
