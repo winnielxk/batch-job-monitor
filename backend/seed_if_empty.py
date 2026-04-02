@@ -1,22 +1,20 @@
-import sqlite3
 import os
+import psycopg2
+from seed import seed
 
-DB_PATH = os.environ.get("DB_PATH", "jobs.db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-conn = sqlite3.connect(DB_PATH)
-count = (
-    conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-    if conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='jobs'"
-    ).fetchone()
-    else 0
-)
-conn.close()
-
-if count == 0:
-    print("[Startup] Empty DB — seeding...")
-    import seed
-
-    seed.seed()
+if not DATABASE_URL:
+    print("[Startup] No DATABASE_URL set, skipping seed check.")
 else:
-    print(f"[Startup] DB has {count} jobs — skipping seed")
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM jobs")
+    count = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    if count == 0:
+        print("[Startup] Empty DB - seeding...")
+        seed()
+    else:
+        print(f"[Startup] DB already has {count} jobs, skipping seed.")
