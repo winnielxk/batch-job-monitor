@@ -442,9 +442,13 @@ export default function App() {
         })
       }
       previousStatuses.current[job_id] = status
-      setJobs(current =>
-        current.map(j => j.job_id === job_id ? { ...j, status, progress } : j)
-      )
+      setJobs(current => {
+        const exists = current.some(j => j.job_id === update.job_id)
+        if (!exists && update.status === 'queued') {
+          return [update, ...current]
+        }
+        return current.map(j => j.job_id === job_id ? { ...j, status, progress } : j)
+      })
       if (selectedJobId === job_id) {
         setSelectedJob(prev => prev ? { ...prev, status, progress } : prev)
       }

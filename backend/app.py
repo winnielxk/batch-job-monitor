@@ -493,9 +493,13 @@ def start_task(task_id):
     conn.commit()
     cur.close()
     conn.close()
-    socketio.emit(
-        "job_update", {"job_id": new_job_id, "status": "queued", "progress": 0}
-    )
+    conn2 = get_db()
+    cur2 = conn2.cursor()
+    cur2.execute("SELECT * FROM jobs WHERE job_id = %s", (new_job_id,))
+    new_job = fetchone_as_dict(cur2)
+    cur2.close()
+    conn2.close()
+    socketio.emit("job_update", new_job)
     return jsonify({"job_id": new_job_id, "status": "queued"})
 
 
