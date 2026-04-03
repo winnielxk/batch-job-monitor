@@ -426,6 +426,7 @@ export default function App() {
     socket.on("connect", () => setConnected(true))
     socket.on("disconnect", () => setConnected(false))
     socket.on("job_update", (update) => {
+      console.log("job_update received:", update)
       const { job_id, status, progress } = update
       const prev = previousStatuses.current[job_id]
       if (prev === "running" && status === "failed") {
