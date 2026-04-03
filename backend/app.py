@@ -402,7 +402,7 @@ def get_jobs():
     filtered_total = cur.fetchone()[0]
 
     cur.execute(
-        f"SELECT * FROM jobs {where} ORDER BY created_at DESC LIMIT %s OFFSET %s",
+        f"SELECT * FROM jobs {where} ORDER BY CASE status WHEN 'running' THEN 1 WHEN 'queued' THEN 2 ELSE 3 END, created_at DESC LIMIT %s OFFSET %s",
         params + [limit, offset],
     )
     jobs = fetchall_as_dicts(cur)
